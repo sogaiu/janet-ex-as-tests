@@ -5,7 +5,7 @@ Generate and run tests from examples / expressions
 ## Setup and Configuration
 
 [Manual setup](./doc_manual-setup.md) is possible, but the author uses
-[jeat-tools](https://github.com/sogaiu/jeat-tools) for various
+[jeat-toolz](https://github.com/sogaiu/jeat-toolz) for various
 installation and management types of tasks.
 
 ## Docs
