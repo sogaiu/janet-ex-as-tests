@@ -25,7 +25,7 @@ to perform the first two steps above.
 
 * `loc-jipper.janet` - from janet-location-zipper
 * `location.janet` - from janet-peg
-* `zip-support.janet` and `zipper.janet` - from janet-zipper
+* `zipper.janet` - from janet-zipper
 
 `make-and-run-tests.janet`'s behavior can be influenced by command
 line parameters and/or per-project configuration info.
