@@ -33,7 +33,7 @@ Thus:
 * `# =>` is a test indicator, and
 * `0` expresses that `0` is the expected value
 
-## Multiple Usages/Tests Per `comment`
+## Multiple Tests Per `comment`
 
 More than one triple (comment block test) can be placed in a comment
 block.  For example, for the following:
@@ -73,9 +73,9 @@ may be evaluated during testing.  For example, in the following:
 
 `(def a 1)` will be executed during testing.
 
-However, if a comment block has no usages/tests (i.e. no expected
-values indicated), the forms within the comment block will NOT be
-executed.  Thus, for the following:
+However, if a comment block has no tests (i.e. no expected values
+indicated), the forms within the comment block will NOT be executed.
+Thus, for the following:
 
 ```janet
 (comment
@@ -121,7 +121,7 @@ not:
 This notational rule is necessary because using `()` implies a call
 of some sort.
 
-### Regarding `def` and frieds
+### Regarding `def` and friends
 
 A `def` form will NOT work as "a form to test".  For example:
 
