@@ -293,7 +293,8 @@
       (array/concat src-filepaths (find-target-files apath file-ext))
       #
       (do
-        (eprintf "Not an ordinary file or directory: %p" apath)
+        (eprintf "No such file or not an ordinary file or directory: %s"
+                 apath)
         (os/exit 1))))
   # generate tests, run tests, and report
   (each path src-filepaths
