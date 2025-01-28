@@ -274,7 +274,7 @@
       (array/push excludes ;exclude-spec)))
   #
   (def src-filepaths @[])
-  # collect file and directory paths from argv
+  # collect file and directory paths
   (each thing includes
     (def apath
       (clean-end-of-path thing sep))
