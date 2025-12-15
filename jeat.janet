@@ -3184,24 +3184,25 @@
   [& argv]
   (def includes (array/slice argv 1))
   (def excludes @[])
+  # some odd path stuff to be able to use from:
   #
+  # * project root
+  # * jpm test / jeep test / etc.
   (def conf
     (when-let [require-name
-               # these paths relative to project root (via jpm test)
+               # these paths relative to project root
                (cond
                  (os/stat ".jeat.janet")
                  ".jeat"
                  #
                  (= :directory (os/stat ".jeat" :mode))
                  ".jeat")]
-      # this path relative to a subdir of project root (via jpm test)
-      (def require-path
-        (string "../" require-name))
       (def conf-env
-        (try
-          (require (string require-path))
-          ([e]
-            (error e))))
+        (try # path relative to a subdir of project root
+          (require (string "../" require-name))
+          ([e1] (try # path relative to project root
+                  (require (string "./" require-name))
+                  ([e2] (error e2))))))
       ((get-in conf-env ['init :value]))))
   (when conf
     (when-let [target-spec (get conf :jeat-target-spec)]
