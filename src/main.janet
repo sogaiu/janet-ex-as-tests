@@ -1,14 +1,12 @@
 #! /usr/bin/env janet
 
+(import ./args :as a)
+(import ./search :as s)
 (import ./to-test :as t)
 
 ###########################################################################
 
-(def file-ext
-  ".janet")
-
-(def test-file-ext
-  ".jeat")
+(def test-file-ext ".jeat")
 
 (defn make-execute-command
   [filepath]
@@ -17,11 +15,6 @@
    "-e" (string "(dofile `" filepath "`)")])
 
 ###########################################################################
-
-(def sep
-  (if (= :windows (os/which))
-    "\\"
-    "/"))
 
 (defn parse-path
   [path]
@@ -61,20 +54,19 @@
 
 (defn make-tests
   [filepath]
-  (def src
-    (slurp filepath))
-  (def test-src
-    (t/rewrite-as-test-file src))
+  (def src (slurp filepath))
+  (def test-src (t/rewrite-as-test-file src))
   (unless test-src
     (break :no-tests))
-  (def [fdir fname]
-    (parse-path filepath))
-  (def test-filepath
-    (string fdir "_" fname test-file-ext))
+  #
+  (def [fdir fname] (parse-path filepath))
+  (def test-filepath (string fdir "_" fname test-file-ext))
   (unless test-filepath
     (eprintf "test file already exists for: %p" filepath)
     (break nil))
+  #
   (spit test-filepath test-src)
+  #
   test-filepath)
 
 (defn run-tests
@@ -121,17 +113,17 @@
 (defn make-run-report
   [filepath]
   # create test source
-  (def result
-    (make-tests filepath))
+  (def result (make-tests filepath))
   (unless result
     (eprintf "failed to create test file for: %p" filepath)
     (break nil))
+  #
   (when (= :no-tests result)
     (break :no-tests))
+  #
   (def test-filepath result)
   # run tests and collect output
-  (def [out err ecode]
-    (run-tests test-filepath))
+  (def [out err ecode] (run-tests test-filepath))
   # print out results
   (report out err)
   # finish off
@@ -139,101 +131,18 @@
     (os/rm test-filepath)
     true))
 
-(defn find-files-with-ext
-  [dir ext]
-  (def paths @[])
-  (defn helper
-    [a-dir]
-    (each path (os/dir a-dir)
-      (def sub-path
-        (string a-dir sep path))
-      (case (os/stat sub-path :mode)
-        :directory
-        (when (not= path ".git")
-          (when (not (os/stat (string sub-path sep ".gitrepo")))
-            (helper sub-path)))
-        #
-        :file
-        (when (string/has-suffix? ext sub-path)
-          (array/push paths sub-path)))))
-  (helper dir)
-  paths)
-
-(comment
-
-  (find-files-with-ext "." file-ext)
-
-  )
-
-(defn clean-end-of-path
-  [path sep]
-  (when (one? (length path))
-    (break path))
-  (if (string/has-suffix? sep path)
-    (string/slice path 0 -2)
-    path))
-
-(comment
-
-  (clean-end-of-path "hello/" "/")
-  # =>
-  "hello"
-
-  (clean-end-of-path "/" "/")
-  # =>
-  "/"
-
-  )
-
 ########################################################################
 
 (defn main
-  [& argv]
-  (def includes (array/slice argv 1))
-  (def excludes @[])
-  # some odd path stuff to be able to use from:
+  [_ & args]
+  (def opts (a/parse-args args))
   #
-  # * project root
-  # * jpm test / jeep test / etc.
-  (def conf
-    (when-let [require-name
-               # these paths relative to project root
-               (cond
-                 (os/stat ".jeat.janet")
-                 ".jeat"
-                 #
-                 (= :directory (os/stat ".jeat" :mode))
-                 ".jeat")]
-      (def conf-env
-        (try # path relative to a subdir of project root
-          (require (string "../" require-name))
-          ([e1] (try # path relative to project root
-                  (require (string "./" require-name))
-                  ([e2] (error e2))))))
-      ((get-in conf-env ['init :value]))))
-  (when conf
-    (when-let [target-spec (get conf :jeat-target-spec)]
-      (array/push includes ;target-spec))
-    (when-let [exclude-spec (get conf :jeat-exclude-spec)]
-      (array/push excludes ;exclude-spec)))
+  (def includes (get opts :includes))
+  (def excludes (get opts :excludes))
   #
-  (def src-filepaths @[])
-  # collect file and directory paths
-  (each thing includes
-    (def apath (clean-end-of-path thing sep))
-    (def mode (os/stat apath :mode))
-    # XXX: should :link be supported?
-    (cond
-      (= :file mode)
-      (array/push src-filepaths apath)
-      #
-      (= :directory mode)
-      (array/concat src-filepaths (find-files-with-ext apath file-ext))
-      #
-      (do
-        (eprintf "No such file or not an ordinary file or directory: %s"
-                 apath)
-        (os/exit 1))))
+  (def src-filepaths
+    (s/collect-paths includes |(or (string/has-suffix? ".janet" $)
+                                   (s/has-janet-shebang? $))))
   # generate tests, run tests, and report
   (each path src-filepaths
     (when (and (not (has-value? excludes path))
