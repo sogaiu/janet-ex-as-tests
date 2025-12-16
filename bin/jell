@@ -57,226 +57,6 @@
   #
   (merge opts default-opts))
 
-(defn u/maybe-dump
-  [& args]
-  (assertf (even? (length args))
-           "expected even number or args: %n" args)
-  #
-  (when (os/getenv "VERBOSE")
-    (each [name value] (partition 2 args)
-      (cond
-        (dictionary? value)
-        (do
-          (pp [name])
-          (eachp [k v] value
-            (printf "%n: %n" k v)))
-        #
-        (indexed? value)
-        (do
-          (pp [name])
-          (each v value
-            (pp v)))
-        #
-        (pp [name value])))
-    (print)))
-
-########################################################################
-
-# XXX: more edge cases to identify?
-#      * consecutive separator handling matches
-#        posix more than python / spork/path
-(defn u/file-dir-path
-  [path]
-  (when (empty? path)
-    (break path))
-  #
-  (def os (or (dyn :os-override) (os/which)))
-  (def bs-land (or (= :windows os) (= :mingw os)))
-  (def sep (if bs-land `\` "/"))
-  (if bs-land
-    (when (peg/match ~(sequence :a `:\` -1) path)
-      (break path))
-    (when (= path "/")
-      (break path)))
-  #
-  (def rev-path (string/reverse path))
-  (def last-sep-idx (string/find sep rev-path))
-  (def candidate
-    (if-not last-sep-idx
-      path
-      (string/slice path 0
-                    (dec (- (length path) last-sep-idx)))))
-  #
-  (if (not (string/find sep candidate))
-    (string candidate sep)
-    candidate))
-
-(comment
-
-  # an actual case we want to handle
-  (u/file-dir-path "/etc/motd")
-  # =>
-  "/etc"
-
-  # another actual case we want to handle
-  (let [old (dyn :os-override)]
-    (setdyn :os-override :windows)
-    (defer (setdyn :os-override old)
-      (u/file-dir-path `C:\Windows\System32\taskmgr.exe`)))
-  # =>
-  `C:\Windows\System32`
-
-  # everything below here are edge cases we don't care about...
-
-  (u/file-dir-path "")
-  # =>
-  ""
-
-  (u/file-dir-path "/")
-  # =>
-  "/"
-
-  # differs from python and spork
-  (u/file-dir-path "//")
-  # =>
-  "/"
-
-  (u/file-dir-path "/etc")
-  # =>
-  "/"
-
-  # sames as python's os.path.dirname, different from unix dirname
-  (u/file-dir-path "/etc/")
-  # =>
-  "/etc"
-
-  (let [old (dyn :os-override)]
-    (setdyn :os-override :windows)
-    (defer (setdyn :os-override old)
-      (u/file-dir-path `C:\Windows`)))
-  # =>
-  `C:\`
-
-  (let [old (dyn :os-override)]
-    (setdyn :os-override :windows)
-    (defer (setdyn :os-override old)
-      (u/file-dir-path `A:\`)))
-  # =>
-  `A:\`
-
-  (let [old (dyn :os-override)]
-    (setdyn :os-override :windows)
-    (defer (setdyn :os-override old)
-      (u/file-dir-path `Z:\`)))
-  # =>
-  `Z:\`
-
-  )
-
-(defn u/split-path
-  [path]
-  (def fd-path (u/file-dir-path path))
-  (when (empty? path)
-    (break @["" ""]))
-  #
-  (def idx (inc (string/find fd-path path)))
-  #
-  @[fd-path
-    (string/slice path (+ idx (length fd-path)) -1)])
-
-(comment
-
-  # really the only case we care about
-  (u/split-path "/etc/motd")
-  # =>
-  @["/etc" "motd"]
-
-  )
-
-(defn u/abspath?
-  [path &opt bs-land]
-  (def os (os/which))
-  (default bs-land (or (= :windows os) (= :mingw os)))
-  (if bs-land
-    # https://stackoverflow.com/a/23968430
-    # https://learn.microsoft.com/en-us/dotnet/standard/io/file-path-formats
-    (truthy? (peg/match ~(sequence :a `:\`) path))
-    (string/has-prefix? "/" path)))
-
-(defn u/touch
-  [path]
-  (with [f (file/open path :w+)]
-    true))
-
-
-# XXX: a hack -- could reuse parts of a better peg
-(def l/import-grammar
-  ~(sequence :s* "("
-             :s* "import"
-             :s+
-             # target item
-             (choice (sequence `"`
-                               (capture
-                                 (some
-                                   (if-not (set ` \t\r\n\0\f\v"`) 1)))
-                               `"`)
-                     (capture (some (if-not (set " \t\r\n\0\f\v)") 1))))
-             # the rest
-             (choice ")"
-                     (sequence :s+
-                               (any (if-not ")" 1))
-                               ")"))))
-
-(comment
-
-  (peg/match l/import-grammar "(import ./pegs)")
-  # =>
-  @["./pegs"]
-
-  (peg/match l/import-grammar `(import ./pegs :prefix "")`)
-  # =>
-  @["./pegs"]
-
-  (peg/match l/import-grammar `(import "./pegs")`)
-  # =>
-  @["./pegs"]
-
-  )
-
-# create single file of source from a starting janet file by:
-#
-# 1. starting at in-path, read line by line recording the content in
-#    out-path unless the line is an import form.
-#
-# 2. if an import form is encountered, don't record the line in
-#    out-path, instead if the file it refers to has not been visited,
-#    visit the file and continue recursively.
-(defn l/link
-  [in-path out-path]
-  # assumes paths are full paths...
-  # XXX: could check if we had abspath?
-  (def [dir-path file-path] (u/split-path in-path))
-  # remember which files have already been "imported"
-  (def seen @{})
-  # for restoring the current working directory (cwd)
-  (def old-dir (os/cwd))
-  # need to operate relative to in-path's dir
-  (os/cd dir-path)
-  #
-  (defer (os/cd old-dir)
-    (with [out-file (file/open out-path :w)]
-      (defn helper
-        [a-path]
-        (when (in seen a-path) (break))
-        #
-        (put seen a-path true)
-        (with [in-file (file/open a-path :r)]
-          (loop [line :iterate (file/read in-file :line)]
-            (if-let [[name-path] (peg/match l/import-grammar line)]
-              (helper (string name-path ".janet"))
-              (file/write out-file line)))))
-      (helper file-path)
-      (file/flush out-file))))
 
 # bl - begin line
 # bc - begin column
@@ -2433,6 +2213,323 @@
   )
 
 
+(defn u/maybe-dump
+  [& args]
+  (assertf (even? (length args))
+           "expected even number or args: %n" args)
+  #
+  (when (os/getenv "VERBOSE")
+    (each [name value] (partition 2 args)
+      (cond
+        (dictionary? value)
+        (do
+          (pp [name])
+          (eachp [k v] value
+            (printf "%n: %n" k v)))
+        #
+        (indexed? value)
+        (do
+          (pp [name])
+          (each v value
+            (pp v)))
+        #
+        (pp [name value])))
+    (print)))
+
+########################################################################
+
+# XXX: more edge cases to identify?
+#      * consecutive separator handling matches
+#        posix more than python / spork/path
+(defn u/file-dir-path
+  [path]
+  (when (empty? path)
+    (break path))
+  #
+  (def os (or (dyn :os-override) (os/which)))
+  (def bs-land (or (= :windows os) (= :mingw os)))
+  (def sep (if bs-land `\` "/"))
+  (if bs-land
+    (when (peg/match ~(sequence :a `:\` -1) path)
+      (break path))
+    (when (= path "/")
+      (break path)))
+  #
+  (def rev-path (string/reverse path))
+  (def last-sep-idx (string/find sep rev-path))
+  (def candidate
+    (if-not last-sep-idx
+      path
+      (string/slice path 0
+                    (dec (- (length path) last-sep-idx)))))
+  #
+  (if (not (string/find sep candidate))
+    (string candidate sep)
+    candidate))
+
+(comment
+
+  # an actual case we want to handle
+  (u/file-dir-path "/etc/motd")
+  # =>
+  "/etc"
+
+  # another actual case we want to handle
+  (let [old (dyn :os-override)]
+    (setdyn :os-override :windows)
+    (defer (setdyn :os-override old)
+      (u/file-dir-path `C:\Windows\System32\taskmgr.exe`)))
+  # =>
+  `C:\Windows\System32`
+
+  # everything below here are edge cases we don't care about...
+
+  (u/file-dir-path "")
+  # =>
+  ""
+
+  (u/file-dir-path "/")
+  # =>
+  "/"
+
+  # differs from python and spork
+  (u/file-dir-path "//")
+  # =>
+  "/"
+
+  (u/file-dir-path "/etc")
+  # =>
+  "/"
+
+  # sames as python's os.path.dirname, different from unix dirname
+  (u/file-dir-path "/etc/")
+  # =>
+  "/etc"
+
+  (let [old (dyn :os-override)]
+    (setdyn :os-override :windows)
+    (defer (setdyn :os-override old)
+      (u/file-dir-path `C:\Windows`)))
+  # =>
+  `C:\`
+
+  (let [old (dyn :os-override)]
+    (setdyn :os-override :windows)
+    (defer (setdyn :os-override old)
+      (u/file-dir-path `A:\`)))
+  # =>
+  `A:\`
+
+  (let [old (dyn :os-override)]
+    (setdyn :os-override :windows)
+    (defer (setdyn :os-override old)
+      (u/file-dir-path `Z:\`)))
+  # =>
+  `Z:\`
+
+  )
+
+(defn u/split-path
+  [path]
+  (def fd-path (u/file-dir-path path))
+  (when (empty? path)
+    (break @["" ""]))
+  #
+  (def idx (inc (string/find fd-path path)))
+  #
+  @[fd-path
+    (string/slice path (+ idx (length fd-path)) -1)])
+
+(comment
+
+  # really the only case we care about
+  (u/split-path "/etc/motd")
+  # =>
+  @["/etc" "motd"]
+
+  )
+
+(defn u/abspath?
+  [path &opt bs-land]
+  (def os (os/which))
+  (default bs-land (or (= :windows os) (= :mingw os)))
+  (if bs-land
+    # https://stackoverflow.com/a/23968430
+    # https://learn.microsoft.com/en-us/dotnet/standard/io/file-path-formats
+    (truthy? (peg/match ~(sequence :a `:\`) path))
+    (string/has-prefix? "/" path)))
+
+(defn u/touch
+  [path]
+  (with [f (file/open path :w+)]
+    true))
+
+
+
+(defn c/is-import?
+  [zloc]
+  (def node (j/node zloc))
+  (when (not= :tuple (get node 0))
+    (break false))
+  #
+  (def head-zloc (j/down zloc))
+  (when (not head-zloc)
+    (break false))
+  #
+  (def first-child-node (j/node head-zloc))
+  (when (not first-child-node)
+    (break false))
+  #
+  (def fc-node-type (get first-child-node 0))
+  (def first-non-wsc-node
+    (cond
+      (= :symbol fc-node-type)
+      first-child-node
+      #
+      (or (= :whitespace fc-node-type)
+          (= :comment fc-node-type))
+      (-> (j/right-skip-wsc head-zloc)
+          j/node)
+      #
+      nil))
+  (when (not first-non-wsc-node)
+    (break false))
+  #
+  (when (= "import" (get first-non-wsc-node 2))
+    (u/maybe-dump :is-import? (j/gen (j/node zloc)))
+    true))
+
+(comment
+
+  (def zloc (j/zip-down (j/par `(import ./args :prefix "")`)))
+
+  (j/node zloc)
+  # =>
+  [:tuple @{:bc 1 :bl 1 :ec 27 :el 1}
+   [:symbol @{:bc 2 :bl 1 :ec 8 :el 1} "import"]
+   [:whitespace @{:bc 8 :bl 1 :ec 9 :el 1} " "]
+   [:symbol @{:bc 9 :bl 1 :ec 15 :el 1} "./args"]
+   [:whitespace @{:bc 15 :bl 1 :ec 16 :el 1} " "]
+   [:keyword @{:bc 16 :bl 1 :ec 23 :el 1} ":prefix"]
+   [:whitespace @{:bc 23 :bl 1 :ec 24 :el 1} " "]
+   [:string @{:bc 24 :bl 1 :ec 26 :el 1} `""`]]
+
+  (c/is-import? zloc)
+  # =>
+  true
+
+  (def zloc (j/zip-down (j/par `( import ./args :as a)`)))
+
+  (j/node zloc)
+  # =>
+  [:tuple @{:bc 1 :bl 1 :ec 23 :el 1}
+   [:whitespace @{:bc 2 :bl 1 :ec 3 :el 1} " "]
+   [:symbol @{:bc 3 :bl 1 :ec 9 :el 1} "import"]
+   [:whitespace @{:bc 9 :bl 1 :ec 10 :el 1} " "]
+   [:symbol @{:bc 10 :bl 1 :ec 16 :el 1} "./args"]
+   [:whitespace @{:bc 16 :bl 1 :ec 17 :el 1} " "]
+   [:keyword @{:bc 17 :bl 1 :ec 20 :el 1} ":as"]
+   [:whitespace @{:bc 20 :bl 1 :ec 21 :el 1} " "]
+   [:symbol @{:bc 21 :bl 1 :ec 22 :el 1} "a"]]
+
+  (c/is-import? zloc)
+  # =>
+  true
+
+  )
+
+(defn c/analyze-import
+  [node]
+  (def parsed
+    (try (parse (j/gen node))
+      ([e] (errorf "failed to parse node: %n" node))))
+  (assertf (tuple? parsed) "expected tuple, found: %n: for: %n"
+           (type parsed) parsed)
+  #
+  (table :path (string (get parsed 1))
+         ;(tuple/slice parsed 2)))
+
+(comment
+
+  (c/analyze-import [:tuple @{:bc 1 :bl 1 :ec 27 :el 1}
+                   [:symbol @{:bc 2 :bl 1 :ec 8 :el 1} "import"]
+                   [:whitespace @{:bc 8 :bl 1 :ec 9 :el 1} " "]
+                   [:symbol @{:bc 9 :bl 1 :ec 15 :el 1} "./args"]
+                   [:whitespace @{:bc 15 :bl 1 :ec 16 :el 1} " "]
+                   [:keyword @{:bc 16 :bl 1 :ec 23 :el 1} ":prefix"]
+                   [:whitespace @{:bc 23 :bl 1 :ec 24 :el 1} " "]
+                   [:string @{:bc 24 :bl 1 :ec 26 :el 1} "\"\""]])
+  # =>
+  @{:path "./args" :prefix ""}
+
+  (c/analyze-import [:tuple @{:bc 1 :bl 1 :ec 23 :el 1}
+                   [:whitespace @{:bc 2 :bl 1 :ec 3 :el 1} " "]
+                   [:symbol @{:bc 3 :bl 1 :ec 9 :el 1} "import"]
+                   [:whitespace @{:bc 9 :bl 1 :ec 10 :el 1} " "]
+                   [:symbol @{:bc 10 :bl 1 :ec 16 :el 1} "./args"]
+                   [:whitespace @{:bc 16 :bl 1 :ec 17 :el 1} " "]
+                   [:keyword @{:bc 17 :bl 1 :ec 20 :el 1} ":as"]
+                   [:whitespace @{:bc 20 :bl 1 :ec 21 :el 1} " "]
+                   [:symbol @{:bc 21 :bl 1 :ec 22 :el 1} "a"]])
+  # =>
+  @{:as 'a :path "./args"}
+
+  )
+
+
+
+
+
+# create single file of source from appropriately modified set of
+# files (see the code in prepare), beginning with a starting janet
+# file by:
+#
+# 1. create a zipper from in-path's content, then traverse to the
+#    right, recording the corresponding source code to out-path unless
+#    the encountered zloc has a node representing an import form.
+#
+# 2. if an import form is encountered, don't record the form in
+#    out-path, instead if the file the import form refers to has not
+#    been visited, visit the file and continue recursively.
+(defn l/link
+  [in-path out-path]
+  # assumes paths are full paths...
+  # XXX: could check if we had abspath?
+  (def [dir-path file-path] (u/split-path in-path))
+  # remember which files have already been "imported"
+  (def seen @{})
+  # for restoring the current working directory (cwd)
+  (def old-dir (os/cwd))
+  # need to operate relative to in-path's dir
+  (os/cd dir-path)
+  #
+  (defer (os/cd old-dir)
+    (with [out-file (file/open out-path :w)]
+      (defn helper
+        [a-path]
+        (when (in seen a-path) (break))
+        #
+        (put seen a-path true)
+        (var zloc
+          (try (-> (slurp a-path)
+                   j/par
+                   j/zip-down)
+            ([e] (errorf "failed to prepare zloc from: %s" a-path))))
+        (while zloc
+          (def cur-node (j/node zloc))
+          (if (c/is-import? zloc)
+            (let [i-tbl (c/analyze-import cur-node)]
+              (helper (string (get i-tbl :path) ".janet")))
+            (file/write out-file (j/gen cur-node)))
+          (set zloc (j/right zloc))))
+      #
+      (helper file-path)
+      (file/flush out-file))))
+
+
+
+
+
 (defn p/valid-sym-name?
   [sym-name]
   (peg/match
@@ -2510,44 +2607,6 @@
   #
   sym-zlocs)
 
-(defn p/analyze-import
-  [node]
-  (def parsed
-    (try (parse (j/gen node))
-      ([e] (errorf "failed to parse node: %n" node))))
-  (assertf (tuple? parsed) "expected tuple, found: %n: for: %n"
-           (type parsed) parsed)
-  #
-  (table :path (string (get parsed 1))
-         ;(tuple/slice parsed 2)))
-
-(comment
-
-  (p/analyze-import [:tuple @{:bc 1 :bl 1 :ec 27 :el 1}
-                   [:symbol @{:bc 2 :bl 1 :ec 8 :el 1} "import"]
-                   [:whitespace @{:bc 8 :bl 1 :ec 9 :el 1} " "]
-                   [:symbol @{:bc 9 :bl 1 :ec 15 :el 1} "./args"]
-                   [:whitespace @{:bc 15 :bl 1 :ec 16 :el 1} " "]
-                   [:keyword @{:bc 16 :bl 1 :ec 23 :el 1} ":prefix"]
-                   [:whitespace @{:bc 23 :bl 1 :ec 24 :el 1} " "]
-                   [:string @{:bc 24 :bl 1 :ec 26 :el 1} "\"\""]])
-  # =>
-  @{:path "./args" :prefix ""}
-
-  (p/analyze-import [:tuple @{:bc 1 :bl 1 :ec 23 :el 1}
-                   [:whitespace @{:bc 2 :bl 1 :ec 3 :el 1} " "]
-                   [:symbol @{:bc 3 :bl 1 :ec 9 :el 1} "import"]
-                   [:whitespace @{:bc 9 :bl 1 :ec 10 :el 1} " "]
-                   [:symbol @{:bc 10 :bl 1 :ec 16 :el 1} "./args"]
-                   [:whitespace @{:bc 16 :bl 1 :ec 17 :el 1} " "]
-                   [:keyword @{:bc 17 :bl 1 :ec 20 :el 1} ":as"]
-                   [:whitespace @{:bc 20 :bl 1 :ec 21 :el 1} " "]
-                   [:symbol @{:bc 21 :bl 1 :ec 22 :el 1} "a"]])
-  # =>
-  @{:as 'a :path "./args"}
-
-  )
-
 (defn p/tweak-import-forms
   [zloc]
   (var cur-zloc zloc)
@@ -2557,7 +2616,7 @@
                         [:tuple _ [:symbol _ "import"]]
                         cur-zloc)
                i-node (j/node i-zloc)]
-      (def i-tbl (p/analyze-import i-node))
+      (def i-tbl (c/analyze-import i-node))
       (assertf (get i-tbl :path)
                "import form lacks a path: %n" i-tbl)
       (set cur-zloc (j/replace cur-zloc
@@ -2634,108 +2693,9 @@
   in-out-path)
 
 
-(defn s/is-import?
-  [zloc]
-  (def node (j/node zloc))
-  (when (not= :tuple (get node 0))
-    (break false))
-  #
-  (def head-zloc (j/down zloc))
-  (when (not head-zloc)
-    (break false))
-  #
-  (def first-sym-node
-    (if-let [a-node (j/node head-zloc)
-             _ (= :symbol (get a-node 0))]
-      a-node
-      (when-let [res
-                 (j/right-until head-zloc |(match (j/node $)
-                                             [:symbol]
-                                             $))]
-        (j/node res))))
-  (when (not first-sym-node)
-    (break false))
-  #
-  (when (= "import" (get first-sym-node 2))
-    (u/maybe-dump :is-import? (j/gen (j/node zloc)))
-    true))
 
-(comment
 
-  (def zloc (j/zip-down (j/par `(import ./args :prefix "")`)))
 
-  (j/node zloc)
-  # =>
-  [:tuple @{:bc 1 :bl 1 :ec 27 :el 1}
-   [:symbol @{:bc 2 :bl 1 :ec 8 :el 1} "import"]
-   [:whitespace @{:bc 8 :bl 1 :ec 9 :el 1} " "]
-   [:symbol @{:bc 9 :bl 1 :ec 15 :el 1} "./args"]
-   [:whitespace @{:bc 15 :bl 1 :ec 16 :el 1} " "]
-   [:keyword @{:bc 16 :bl 1 :ec 23 :el 1} ":prefix"]
-   [:whitespace @{:bc 23 :bl 1 :ec 24 :el 1} " "]
-   [:string @{:bc 24 :bl 1 :ec 26 :el 1} `""`]]
-
-  (s/is-import? zloc)
-  # =>
-  true
-
-  (def zloc (j/zip-down (j/par `( import ./args :as a)`)))
-
-  (j/node zloc)
-  # =>
-  [:tuple @{:bc 1 :bl 1 :ec 23 :el 1}
-   [:whitespace @{:bc 2 :bl 1 :ec 3 :el 1} " "]
-   [:symbol @{:bc 3 :bl 1 :ec 9 :el 1} "import"]
-   [:whitespace @{:bc 9 :bl 1 :ec 10 :el 1} " "]
-   [:symbol @{:bc 10 :bl 1 :ec 16 :el 1} "./args"]
-   [:whitespace @{:bc 16 :bl 1 :ec 17 :el 1} " "]
-   [:keyword @{:bc 17 :bl 1 :ec 20 :el 1} ":as"]
-   [:whitespace @{:bc 20 :bl 1 :ec 21 :el 1} " "]
-   [:symbol @{:bc 21 :bl 1 :ec 22 :el 1} "a"]]
-
-  (s/is-import? zloc)
-  # =>
-  true
-
-  )
-
-(defn s/analyze-import
-  [node]
-  (def parsed
-    (try (parse (j/gen node))
-      ([e] (errorf "failed to parse node: %n" node))))
-  (assertf (tuple? parsed) "expected tuple, found: %n: for: %n"
-           (type parsed) parsed)
-  #
-  (table :path (string (get parsed 1))
-         ;(tuple/slice parsed 2)))
-
-(comment
-
-  (s/analyze-import [:tuple @{:bc 1 :bl 1 :ec 27 :el 1}
-                   [:symbol @{:bc 2 :bl 1 :ec 8 :el 1} "import"]
-                   [:whitespace @{:bc 8 :bl 1 :ec 9 :el 1} " "]
-                   [:symbol @{:bc 9 :bl 1 :ec 15 :el 1} "./args"]
-                   [:whitespace @{:bc 15 :bl 1 :ec 16 :el 1} " "]
-                   [:keyword @{:bc 16 :bl 1 :ec 23 :el 1} ":prefix"]
-                   [:whitespace @{:bc 23 :bl 1 :ec 24 :el 1} " "]
-                   [:string @{:bc 24 :bl 1 :ec 26 :el 1} "\"\""]])
-  # =>
-  @{:path "./args" :prefix ""}
-
-  (s/analyze-import [:tuple @{:bc 1 :bl 1 :ec 23 :el 1}
-                   [:whitespace @{:bc 2 :bl 1 :ec 3 :el 1} " "]
-                   [:symbol @{:bc 3 :bl 1 :ec 9 :el 1} "import"]
-                   [:whitespace @{:bc 9 :bl 1 :ec 10 :el 1} " "]
-                   [:symbol @{:bc 10 :bl 1 :ec 16 :el 1} "./args"]
-                   [:whitespace @{:bc 16 :bl 1 :ec 17 :el 1} " "]
-                   [:keyword @{:bc 17 :bl 1 :ec 20 :el 1} ":as"]
-                   [:whitespace @{:bc 20 :bl 1 :ec 21 :el 1} " "]
-                   [:symbol @{:bc 21 :bl 1 :ec 22 :el 1} "a"]])
-  # =>
-  @{:as 'a :path "./args"}
-
-  )
 
 (defn s/find-files-and-imports
   [in-path]
@@ -2769,11 +2729,11 @@
         (def import-paths (get imports a-path))
         (while (def i-zloc
                  (j/search-from cur-zloc |(match (j/node $) [:tuple]
-                                            (when (s/is-import? $)
+                                            (when (c/is-import? $)
                                               $))))
           (set cur-zloc (j/df-next i-zloc))
           (def i-node (j/node i-zloc))
-          (def i-stats (s/analyze-import i-node))
+          (def i-stats (c/analyze-import i-node))
           (def i-path (get i-stats :path))
           (assertf (string/has-prefix? "./" i-path)
                    "path should start with `./`, but found: %s" i-path)
@@ -2812,6 +2772,8 @@
             (values files-and-imports)))
   #
   prefixes)
+
+
 
 
 (def usage
