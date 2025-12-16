@@ -3215,7 +3215,7 @@
   #
   (def [fdir fname] (parse-path filepath))
   (def test-filepath (string fdir "_" fname test-file-ext))
-  (unless test-filepath
+  (when (os/stat test-filepath :mode)
     (eprintf "test file already exists for: %p" filepath)
     (break nil))
   #
