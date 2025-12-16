@@ -51,6 +51,7 @@
          {:includes includes
           :excludes excludes}))
 
+
 (def s/sep
   (if (= :windows (os/which))
     `\`
@@ -156,6 +157,7 @@
             (array/push all-results (merge item {:path path})))))))
   #
   [all-results hit-paths])
+
 
 # bl - begin line
 # bc - begin column
@@ -2312,6 +2314,7 @@
   )
 
 
+
 # ti == test indicator, which can look like any of:
 #
 # # =>
@@ -3151,6 +3154,7 @@
 
   )
 
+
 (defn u/parse-path
   [path]
   (def revcap-peg
@@ -3188,7 +3192,67 @@
   )
 
 
+
 ###########################################################################
+
+(def usage
+  ``
+  Usage: jeat [<file-or-dir>...]
+         jeat [-h|--help]
+
+  Create and run comment form tests.
+
+  Parameters:
+
+    <file-or-dir>          path to file or directory
+
+  Options:
+
+    -h, --help             show this output
+
+  Configuration:
+
+    .jeat.jdn              configuration file
+
+  Examples:
+
+    Create and run tests in `src/` directory:
+
+    $ jeat src
+
+    `jeat` can be used via `jpm`, `jeep`, etc. with
+    some one-time setup.  Create a suitable `.jeat.jdn`
+    file in a project's root directory and a runner
+    file in a project's `test/` subdirectory (see below
+    for further details).
+
+    Run via `jeep test`:
+
+    $ jeep test
+
+    Run via `jpm test`:
+
+    $ jpm test
+
+    Run using the configuration file via direct
+    invocation:
+
+    $ jeat
+
+  Example `.jeat.jdn` content:
+
+    {# describes what to test - file and dir paths
+     :includes ["src" "bin/my-script"]
+     # describes what to skip - file paths only
+     :excludes ["src/sample.janet"]}
+
+  Example runner file `test/trigger-jeat.janet`:
+
+    (import ../jeat)
+
+    (jeat/main nil)
+
+  ``)
 
 (def test-file-ext ".jeat")
 
@@ -3275,6 +3339,10 @@
 (defn main
   [_ & args]
   (def opts (a/parse-args args))
+  #
+  (when (get opts :help)
+    (print usage)
+    (os/exit 0))
   #
   (def includes (get opts :includes))
   (def excludes (get opts :excludes))
