@@ -3248,12 +3248,10 @@
 
 (defn report
   [out err]
-  (when (and out
-             (pos? (length out)))
+  (when (and out (pos? (length out)))
     (print out)
     (print))
-  (when (and err
-             (pos? (length err)))
+  (when (and err (pos? (length err)))
     (print "------")
     (print "stderr")
     (print "------")
