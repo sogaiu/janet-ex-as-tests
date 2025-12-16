@@ -2,7 +2,7 @@
 
 (import ./args :as a)
 (import ./search :as s)
-(import ./to-test :as t)
+(import ./rewrite :as r)
 (import ./utils :as u)
 
 ###########################################################################
@@ -12,7 +12,7 @@
 (defn make-tests
   [filepath]
   (def src (slurp filepath))
-  (def test-src (t/rewrite-as-test-file src))
+  (def test-src (r/rewrite-as-test-file src))
   (unless test-src
     (break :no-tests))
   #

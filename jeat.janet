@@ -2325,7 +2325,7 @@
 # # => after
 # # before => after
 
-(defn t/find-test-indicator
+(defn r/find-test-indicator
   [zloc]
   (var label-left nil)
   (var label-right nil)
@@ -2359,7 +2359,7 @@
             "2"))
 
   (let [[zloc l r]
-        (t/find-test-indicator (-> (j/par src)
+        (r/find-test-indicator (-> (j/par src)
                                  j/zip-down))]
     (and zloc
          (empty? l)
@@ -2373,7 +2373,7 @@
             "2"))
 
   (let [[zloc l r]
-        (t/find-test-indicator (-> (j/par src)
+        (r/find-test-indicator (-> (j/par src)
                                  j/zip-down))]
     (and zloc
          (= "before" l)
@@ -2387,7 +2387,7 @@
             "2"))
 
   (let [[zloc l r]
-        (t/find-test-indicator (-> (j/par src)
+        (r/find-test-indicator (-> (j/par src)
                                  j/zip-down))]
     (and zloc
          (empty? l)
@@ -2397,7 +2397,7 @@
 
   )
 
-(defn t/find-test-expr
+(defn r/find-test-expr
   [ti-zloc]
   # check for appropriate conditions "before"
   (def before-zlocs @[])
@@ -2449,7 +2449,7 @@
             "  )"))
 
   (def [ti-zloc _ _]
-    (t/find-test-indicator (-> (j/par src)
+    (r/find-test-indicator (-> (j/par src)
                              j/zip-down
                              j/down)))
 
@@ -2458,7 +2458,7 @@
   '(:comment @{:bc 3 :bl 6 :ec 7 :el 6} "# =>")
 
   (def test-expr-zloc
-    (t/find-test-expr ti-zloc))
+    (r/find-test-expr ti-zloc))
 
   (j/node test-expr-zloc)
   # =>
@@ -2478,7 +2478,7 @@
 
   )
 
-(defn t/find-expected-expr
+(defn r/find-expected-expr
   [ti-zloc]
   (def after-zlocs @[])
   (var curr-zloc ti-zloc)
@@ -2548,7 +2548,7 @@
             "  )"))
 
   (def [ti-zloc _ _]
-    (t/find-test-indicator (-> (j/par src)
+    (r/find-test-indicator (-> (j/par src)
                              j/zip-down
                              j/down)))
 
@@ -2557,7 +2557,7 @@
   '(:comment @{:bc 3 :bl 6 :ec 7 :el 6} "# =>")
 
   (def expected-expr-zloc
-    (t/find-expected-expr ti-zloc))
+    (r/find-expected-expr ti-zloc))
 
   (j/node expected-expr-zloc)
   # =>
@@ -2583,7 +2583,7 @@
             ")"))
 
   (def [ti-zloc _ _]
-    (t/find-test-indicator (-> (j/par src)
+    (r/find-test-indicator (-> (j/par src)
                              j/zip-down
                              j/down)))
 
@@ -2591,13 +2591,13 @@
   # =>
   '(:comment @{:bc 3 :bl 4 :ec 16 :el 4} "# => @[:a :b]")
 
-  (t/find-expected-expr ti-zloc)
+  (r/find-expected-expr ti-zloc)
   # =>
   :no-expected-expression
 
   )
 
-(defn t/make-label
+(defn r/make-label
   [left right]
   (string ""
           (when (not (empty? left))
@@ -2610,29 +2610,29 @@
 
 (comment
 
-  (t/make-label "hi" "there")
+  (r/make-label "hi" "there")
   # =>
   " hi => there"
 
-  (t/make-label "hi" "")
+  (r/make-label "hi" "")
   # =>
   " hi =>"
 
-  (t/make-label "" "there")
+  (r/make-label "" "there")
   # =>
   " => there"
 
-  (t/make-label "" "")
+  (r/make-label "" "")
   # =>
   ""
 
   )
 
-(defn t/find-test-exprs
+(defn r/find-test-exprs
   [ti-zloc]
   # look for a test expression
   (def test-expr-zloc
-    (t/find-test-expr ti-zloc))
+    (r/find-test-expr ti-zloc))
   (case test-expr-zloc
     :no-test-expression
     (break [nil nil])
@@ -2642,7 +2642,7 @@
             test-expr-zloc))
   # look for an expected value expression
   (def expected-expr-zloc
-    (t/find-expected-expr ti-zloc))
+    (r/find-expected-expr ti-zloc))
   (case expected-expr-zloc
     :no-expected-expression
     (break [test-expr-zloc nil])
@@ -2653,7 +2653,7 @@
   #
   [test-expr-zloc expected-expr-zloc])
 
-(defn t/wrap-as-test-call
+(defn r/wrap-as-test-call
   [start-zloc end-zloc test-label]
   # XXX: hack - not sure if robust enough
   (def eol-str
@@ -2672,7 +2672,7 @@
       (j/append-child [:whitespace @{} " "])
       (j/append-child [:string @{} test-label])))
 
-(defn t/rewrite-comment-zloc
+(defn r/rewrite-comment-zloc
   [comment-zloc]
   # move into comment block
   (var curr-zloc (j/down comment-zloc))
@@ -2680,11 +2680,11 @@
   # process comment block content
   (while (not (j/end? curr-zloc))
     (def [ti-zloc label-left label-right]
-      (t/find-test-indicator curr-zloc))
+      (r/find-test-indicator curr-zloc))
     (unless ti-zloc
       (break))
     (def [test-expr-zloc expected-expr-zloc]
-      (t/find-test-exprs ti-zloc))
+      (r/find-test-exprs ti-zloc))
     (set curr-zloc
          (if (or (nil? test-expr-zloc)
                  (nil? expected-expr-zloc))
@@ -2701,10 +2701,10 @@
                  ti-line-no ((get (j/node ti-zloc) 1) :bl)
                  test-label (string `"`
                                     `line-` ti-line-no
-                                    (t/make-label label-left label-right)
+                                    (r/make-label label-left label-right)
                                     `"`)]
              (set found-test true)
-             (t/wrap-as-test-call start-zloc end-zloc test-label)))))
+             (r/wrap-as-test-call start-zloc end-zloc test-label)))))
   # navigate back out to top of block
   (when found-test
     # morph comment block into plain tuple -- to be unwrapped later
@@ -2737,7 +2737,7 @@
 
   (-> (j/par src)
       j/zip-down
-      t/rewrite-comment-zloc
+      r/rewrite-comment-zloc
       j/root
       j/gen)
   # =>
@@ -2759,11 +2759,11 @@
 
   )
 
-(defn t/rewrite-comment-block
+(defn r/rewrite-comment-block
   [comment-src]
   (-> (j/par comment-src)
       j/zip-down
-      t/rewrite-comment-zloc
+      r/rewrite-comment-zloc
       j/root
       j/gen))
 
@@ -2784,7 +2784,7 @@
             eol
             "  )"))
 
-  (t/rewrite-comment-block src)
+  (r/rewrite-comment-block src)
   # =>
   (string "( "                           eol
           eol
@@ -2804,7 +2804,7 @@
 
   )
 
-(defn t/rewrite
+(defn r/rewrite
   [src]
   (var changed nil)
   # XXX: hack - not sure if robust enough
@@ -2831,7 +2831,7 @@
       # may be rewrite the located top-level comment block
       (set curr-zloc
            (if-let [rewritten-zloc
-                    (t/rewrite-comment-zloc comment-zloc)]
+                    (r/rewrite-comment-zloc comment-zloc)]
              (do
                (set changed true)
                (j/unwrap rewritten-zloc))
@@ -2886,7 +2886,7 @@
             "  )"                eol
             ))
 
-  (t/rewrite src)
+  (r/rewrite src)
   # =>
   (string                        eol
                                  `(require "json")`     eol
@@ -2958,7 +2958,7 @@
             eol
             "  )"))
 
-  (t/rewrite src)
+  (r/rewrite src)
   # =>
   (string                   eol
                             " "               eol
@@ -2986,7 +2986,7 @@
 
 # XXX: try to put in file?  had trouble originally when working on
 #      judge-gen.  may be will have more luck?
-(def t/verify-as-string
+(def r/verify-as-string
   ``
   # influenced by janet's tools/helper.janet
 
@@ -3128,16 +3128,16 @@
       (os/exit 1)))
   ``)
 
-(defn t/rewrite-as-test-file
+(defn r/rewrite-as-test-file
   [src]
   (when (not (empty? src))
-    (when-let [rewritten (t/rewrite src)]
+    (when-let [rewritten (r/rewrite src)]
       # XXX: hack - not sure if robust enough
       (def eol-str
         (if (= :windows (os/which))
           "\r\n"
           "\n"))
-      (string t/verify-as-string
+      (string r/verify-as-string
               eol-str
               "(_verify/start-tests)"
               eol-str
@@ -3152,7 +3152,7 @@
 (comment
 
   (->> (slurp "./to-test-dogfood.janet")
-       t/rewrite-as-test-file
+       r/rewrite-as-test-file
        (spit "./sample-test-dogfood.janet"))
 
   )
@@ -3201,7 +3201,7 @@
 (defn make-tests
   [filepath]
   (def src (slurp filepath))
-  (def test-src (t/rewrite-as-test-file src))
+  (def test-src (r/rewrite-as-test-file src))
   (unless test-src
     (break :no-tests))
   #
