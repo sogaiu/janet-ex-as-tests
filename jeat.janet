@@ -6,7 +6,7 @@
   #
   (def head (get the-args 0))
   #
-  (def conf-file ".jeat.janet")
+  (def conf-file ".jeat.jdn")
   #
   (when (or (= head "-h") (= head "--help")
             # might have been invoked with no paths in repository root
@@ -29,27 +29,21 @@
           parsed))
       @{}))
   #
-  (defn get-in-ex
-    [req-path]
-    (let [conf-env (try (require req-path)
-                     ([e] (error e)))
-          conf ((get-in conf-env ['init :value]))]
-      (assertf conf "missing init function in .jeat.janet")
-      #
-      [(get conf :jeat-target-spec @[])
-       (get conf :jeat-exclude-spec @[])]))
-  #
   (def [includes excludes]
     (cond
-      # jpm test, jeep test, etc.
-      (get opts :via-test-trigger)
-      (get-in-ex "../.jeat")
       # paths on command line take precedence over conf file
       (not (empty? the-args))
       [the-args @[]]
-      # conf file in working dir?
+      # conf file
       (= :file (os/stat conf-file :mode))
-      (get-in-ex "/.jeat") # working directory import
+      (let [conf (try (parse (slurp conf-file))
+                   ([e] (error e)))]
+        (assertf conf "failed to parse: %s" conf-file)
+        (assertf (dictionary? conf)
+                 "expected dictionary, got: %s" (type conf))
+        #
+        [(array ;(get conf :includes @[]))
+         (array ;(get conf :excludes @[]))])
       #
       (errorf "unexpected result parsing: %n" args)))
   #
