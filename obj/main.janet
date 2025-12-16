@@ -3,54 +3,11 @@
 (import ./args :prefix "")
 (import ./search :prefix "")
 (import ./to-test :prefix "")
+(import ./utils :prefix "")
 
 ###########################################################################
 
 (def test-file-ext ".jeat")
-
-(defn make-execute-command
-  [filepath]
-  ["janet"
-   # this prevents any contained `main` functions from executing
-   "-e" (string "(dofile `" filepath "`)")])
-
-###########################################################################
-
-(defn parse-path
-  [path]
-  (def revcap-peg
-    ~(sequence (capture (sequence (choice (to (choice "/" `\`))
-                                          (thru -1))))
-               (capture (thru -1))))
-  (when-let [[rev-name rev-dir]
-             (-?>> (string/reverse path)
-                   (peg/match revcap-peg)
-                   (map string/reverse))]
-    [(or rev-dir "") rev-name]))
-
-(comment
-
-  (parse-path "/tmp/fun/my.fnl")
-  # =>
-  ["/tmp/fun/" "my.fnl"]
-
-  (parse-path "/my.janet")
-  # =>
-  ["/" "my.janet"]
-
-  (parse-path "pp.el")
-  # =>
-  ["" "pp.el"]
-
-  (parse-path "/")
-  # =>
-  ["/" ""]
-
-  (parse-path "")
-  # =>
-  ["" ""]
-
-  )
 
 (defn make-tests
   [filepath]
@@ -59,9 +16,9 @@
   (unless test-src
     (break :no-tests))
   #
-  (def [fdir fname] (parse-path filepath))
+  (def [fdir fname] (u/parse-path filepath))
   (def test-filepath (string fdir "_" fname test-file-ext))
-  (unless test-filepath
+  (when (os/stat test-filepath :mode)
     (eprintf "test file already exists for: %p" filepath)
     (break nil))
   #
@@ -74,9 +31,10 @@
   (try
     (with [of (file/temp)]
       (with [ef (file/temp)]
-        (let [ecode (os/execute (make-execute-command test-filepath)
-                                :p
-                                {:out of :err ef})]
+        (let [cmd 
+              # prevents any contained `main` functions from executing
+              ["janet" "-e" (string "(dofile `" test-filepath "`)")]
+              ecode (os/execute cmd :p {:out of :err ef})]
           (when (not (zero? ecode))
             (eprintf "non-zero exit code: %p" ecode))
           #

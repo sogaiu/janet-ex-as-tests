@@ -3157,20 +3157,7 @@
 
   )
 
-
-###########################################################################
-
-(def test-file-ext ".jeat")
-
-(defn make-execute-command
-  [filepath]
-  ["janet"
-   # this prevents any contained `main` functions from executing
-   "-e" (string "(dofile `" filepath "`)")])
-
-###########################################################################
-
-(defn parse-path
+(defn u/parse-path
   [path]
   (def revcap-peg
     ~(sequence (capture (sequence (choice (to (choice "/" `\`))
@@ -3184,27 +3171,32 @@
 
 (comment
 
-  (parse-path "/tmp/fun/my.fnl")
+  (u/parse-path "/tmp/fun/my.fnl")
   # =>
   ["/tmp/fun/" "my.fnl"]
 
-  (parse-path "/my.janet")
+  (u/parse-path "/my.janet")
   # =>
   ["/" "my.janet"]
 
-  (parse-path "pp.el")
+  (u/parse-path "pp.el")
   # =>
   ["" "pp.el"]
 
-  (parse-path "/")
+  (u/parse-path "/")
   # =>
   ["/" ""]
 
-  (parse-path "")
+  (u/parse-path "")
   # =>
   ["" ""]
 
   )
+
+
+###########################################################################
+
+(def test-file-ext ".jeat")
 
 (defn make-tests
   [filepath]
@@ -3213,7 +3205,7 @@
   (unless test-src
     (break :no-tests))
   #
-  (def [fdir fname] (parse-path filepath))
+  (def [fdir fname] (u/parse-path filepath))
   (def test-filepath (string fdir "_" fname test-file-ext))
   (when (os/stat test-filepath :mode)
     (eprintf "test file already exists for: %p" filepath)
@@ -3228,9 +3220,10 @@
   (try
     (with [of (file/temp)]
       (with [ef (file/temp)]
-        (let [ecode (os/execute (make-execute-command test-filepath)
-                                :p
-                                {:out of :err ef})]
+        (let [cmd 
+              # prevents any contained `main` functions from executing
+              ["janet" "-e" (string "(dofile `" test-filepath "`)")]
+              ecode (os/execute cmd :p {:out of :err ef})]
           (when (not (zero? ecode))
             (eprintf "non-zero exit code: %p" ecode))
           #
