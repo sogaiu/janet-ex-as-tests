@@ -31,7 +31,7 @@
   (try
     (with [of (file/temp)]
       (with [ef (file/temp)]
-        (let [cmd 
+        (let [cmd
               # prevents any contained `main` functions from executing
               ["janet" "-e" (string "(dofile `" test-filepath "`)")]
               ecode (os/execute cmd :p {:out of :err ef})]
