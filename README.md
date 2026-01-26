@@ -2,6 +2,11 @@
 
 Generate and run tests from examples / expressions
 
+## Status
+
+On hold.  In the process of transitioning projects to use
+[niche](https://github.com/sogaiu/niche).
+
 ## Setup and Configuration
 
 [Manual setup](./doc_manual-setup.md) is possible, but the author uses
